@@ -1,0 +1,13 @@
+{
+    "name": "ant-framework/crypto",
+    "description": "php crypto",
+    "require": {
+        "php": ">=5.6.0",
+        "ext-openssl": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ant\\Crypto\\": "./src"
+        }
+    }
+}
