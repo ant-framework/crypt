@@ -1,8 +1,9 @@
 <?php
-namespace Ant\Crypto\Openssl;
+namespace Ant\Crypt\Openssl;
 
 use RuntimeException;
 use InvalidArgumentException;
+use Ant\Crypt\CipherInterface;
 
 /**
  * todo 支持Aead加密
@@ -10,7 +11,7 @@ use InvalidArgumentException;
  * Class Openssl
  * @package Ant\Ciphers
  */
-class Crypto
+class Crypto implements CipherInterface
 {
     protected $method;
 
@@ -18,14 +19,23 @@ class Crypto
 
     protected $iv;
 
+    protected $options;
+
+    protected $fmt;
+
     /**
      * Openssl constructor.
      * @param $method
      * @param $key
      * @param $iv
+     * @param $options
      */
-    public function __construct($method, $key, $iv)
-    {
+    public function __construct(
+        $method,
+        $key,
+        $iv = null,
+        $options = OPENSSL_RAW_DATA
+    ) {
         if (!extension_loaded('openssl')) {
             throw new RuntimeException("请安装openssl扩展");
         }
@@ -36,9 +46,15 @@ class Crypto
             throw new InvalidArgumentException("Invalid cipher name [{$method}]");
         }
 
+        if (is_null($iv)) {
+            $ivLen = openssl_cipher_iv_length($method);
+            $iv = openssl_random_pseudo_bytes($ivLen);
+        }
+
         $this->method = $method;
         $this->key = $key;
         $this->iv = $iv;
+        $this->options = $options;
     }
 
     /**
@@ -75,19 +91,39 @@ class Crypto
 
     /**
      * @param $data
+     * @param null $key
+     * @param null $iv
      * @return string
      */
-    public function encrypt($data)
+    public function encrypt($data, $key = null, $iv = null)
     {
-        return openssl_encrypt($data, $this->method, $this->key, OPENSSL_RAW_DATA, $this->iv);
+        if (is_null($key)) {
+            $key = $this->key;
+        }
+
+        if (is_null($iv)) {
+            $iv = $this->iv;
+        }
+
+        return openssl_encrypt($data, $this->method, $key, $this->options, $iv);
     }
 
     /**
      * @param $data
+     * @param null $key
+     * @param null $iv
      * @return string
      */
-    public function decrypt($data)
+    public function decrypt($data, $key = null, $iv = null)
     {
-        return openssl_decrypt($data, $this->method, $this->key, OPENSSL_RAW_DATA, $this->iv);
+        if (is_null($key)) {
+            $key = $this->key;
+        }
+
+        if (is_null($iv)) {
+            $iv = $this->iv;
+        }
+
+        return openssl_decrypt($data, $this->method, $key, $this->options, $iv);
     }
 }

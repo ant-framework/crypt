@@ -1,16 +1,18 @@
 <?php
-namespace Ant\Crypto\Openssl;
+namespace Ant\Crypt\Openssl;
 
 use RuntimeException;
+use Ant\Crypt\CipherInterface;
 
 /**
+ * todo 支持使用公钥/私钥进行加/解密
  * 加密时,公钥负责加密，私钥负责解密
  * 签名时,私钥负责签名，公钥负责验证
  *
  * Class RsaEncrypt
  * @package EasyPay\Utils
  */
-class RSA
+class RSA implements CipherInterface
 {
     protected $publicKey;
 
@@ -26,7 +28,7 @@ class RSA
      * @param string $publicKey   公钥证书(可为路径)
      * @param string $privateKey  私钥证书(可为路径)
      */
-    public function __construct($publicKey, $privateKey)
+    public function __construct($publicKey = null, $privateKey = null)
     {
         if (!extension_loaded('openssl')) {
             throw new RuntimeException("请安装openssl扩展");
@@ -42,13 +44,15 @@ class RSA
     }
 
     /**
-     * 设置公钥证书
+     * 获取公钥
      *
      * @param $publicKey
-     * @return $this
+     * @return string
      */
-    public function setPublicKey($publicKey)
+    public function getPublicKey($publicKey = null)
     {
+        $publicKey = $publicKey ?: $this->publicKey;
+
         if (is_file($publicKey) && file_exists($publicKey)) {
             $publicKey = @file_get_contents($publicKey);
         }
@@ -57,6 +61,38 @@ class RSA
             throw new RuntimeException("公钥格式错误");
         }
 
+        return $publicKey;
+    }
+
+    /**
+     * 获取私钥
+     *
+     * @param null $privateKey
+     * @return bool|null|string
+     */
+    public function getPrivateKey($privateKey = null)
+    {
+        $privateKey = $privateKey ?: $this->privateKey;
+
+        if (is_file($privateKey) && file_exists($privateKey)) {
+            $privateKey = @file_get_contents($privateKey);
+        }
+
+        if (!is_string($privateKey) && method_exists($privateKey, '__toString')) {
+            throw new RuntimeException("私钥格式错误");
+        }
+
+        return $privateKey;
+    }
+
+    /**
+     * 设置公钥证书
+     *
+     * @param $publicKey
+     * @return $this
+     */
+    public function setPublicKey($publicKey)
+    {
         $this->publicKey = $publicKey;
 
         return $this;
@@ -70,14 +106,6 @@ class RSA
      */
     public function setPrivateKey($privateKey)
     {
-        if (is_file($privateKey) && file_exists($privateKey)) {
-            $privateKey = @file_get_contents($privateKey);
-        }
-
-        if (!is_string($privateKey) && method_exists($privateKey, '__toString')) {
-            throw new RuntimeException("私钥格式错误");
-        }
-
         $this->privateKey = $privateKey;
 
         return $this;
@@ -138,7 +166,7 @@ class RSA
         }
 
         // 从证书导出私钥
-        $priKey = openssl_get_privatekey($this->privateKey);
+        $priKey = openssl_get_privatekey($this->getPrivateKey());
         if ($priKey === false) {
             throw new RuntimeException('私钥格式错误,请检查RSA私钥');
         }
@@ -168,13 +196,13 @@ class RSA
             throw new RuntimeException("缺少验证签名所需要的公钥证书");
         }
 
-        $pubKey = openssl_get_publickey($this->publicKey);
+        $pubKey = openssl_get_publickey($this->getPublicKey());
         if ($pubKey === false) {
             throw new RuntimeException('RSA公钥错误。请检查公钥文件格式是否正确');
         }
 
         $sign = $this->processor($sign, false);
-        $result = (bool)openssl_verify($data, $sign, $pubKey, $signType);
+        $result = (bool) openssl_verify($data, $sign, $pubKey, $signType);
         openssl_free_key($pubKey);
 
         return $result;
@@ -184,25 +212,27 @@ class RSA
      * 通过公钥加密数据
      *
      * @param $data
+     * @param $key
      * @return string
      */
-    public function encrypt($data)
+    public function encrypt($data, $key = null)
     {
         // 通过公钥加密
-        if (empty($this->publicKey)) {
-            throw new RuntimeException("缺少加密所需要的公钥证书");
+        if (empty($key) && empty($this->publicKey)) {
+            throw new RuntimeException("缺少加密所需要的密钥");
         }
         // 生成公钥
-        $publicKey = openssl_pkey_get_public($this->publicKey);
+        $key = openssl_pkey_get_public($this->getPublicKey($key));
 
-        if (!$publicKey) {
-            throw new RuntimeException("无法获取公钥,请检查公钥格式是否正确");
+        if (!$key) {
+            throw new RuntimeException("无法获取密钥,请检查密钥格式是否正确");
         }
 
-        if (!openssl_public_encrypt($data, $encryptedData, $publicKey)) {
+        if (!openssl_public_encrypt($data, $encryptedData, $key)) {
             throw new RuntimeException("加密失败,错误信息".openssl_error_string());
         }
-        openssl_free_key($publicKey);
+
+        openssl_free_key($key);
 
         return $this->processor($encryptedData);
     }
@@ -211,25 +241,29 @@ class RSA
      * 将通过公钥加密的数据解密
      *
      * @param $data
+     * @param $key
      * @return string
      */
-    public function decrypt($data)
+    public function decrypt($data, $key = null)
     {
         // 通过私钥解密
-        if (empty($this->privateKey)) {
-            throw new RuntimeException("缺少解密所需的私钥证书");
+        if (empty($key) && empty($this->privateKey)) {
+            throw new RuntimeException("缺少解密所需的密钥");
         }
 
-        $privateKey = openssl_pkey_get_private($this->privateKey, $this->password);
-        if (!$privateKey) {
-            throw new RuntimeException("无法获取私钥,请检查私钥格式是否正确");
+        $key = openssl_pkey_get_private($this->getPrivateKey($key), $this->password);
+
+        if (!$key) {
+            throw new RuntimeException("无法获取密钥,请检查密钥格式是否正确");
         }
 
         $data = $this->processor($data, false);
-        if (!openssl_private_decrypt($data, $decryptedData, $privateKey)) {
+
+        if (!openssl_private_decrypt($data, $decryptedData, $key)) {
             throw new RuntimeException("解密失败,错误信息".openssl_error_string());
         }
-        openssl_free_key($privateKey);
+
+        openssl_free_key($key);
 
         return $decryptedData;
     }
